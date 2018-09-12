@@ -1,0 +1,19 @@
+{{- if .Values.Kubernetes.Namespace.Enabled }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+{{- if $.Values.Kubernetes.Namespace.KeepNamespaces }}
+  annotations:
+    "helm.sh/resource-policy": keep
+{{- end }}
+  name: {{ .Values.Kubernetes.Namespace.Name | quote }}
+  labels:
+    app: {{ template "jenkins.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+spec:
+  finalizers:
+  - kubernetes
+{{- end }}

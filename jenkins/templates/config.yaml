@@ -1,0 +1,114 @@
+{{- if not .Values.Master.CustomConfigMap }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "jenkins.fullname" . }}
+data:
+  config.xml: |-
+    <?xml version='1.0' encoding='UTF-8'?>
+    <hudson>
+      <disabledAdministrativeMonitors/>
+      <version>{{ .Values.Master.ImageTag }}</version>
+      <numExecutors>0</numExecutors>
+      <mode>NORMAL</mode>
+      <installState>
+        <isSetupComplete>true</isSetupComplete>
+        <name>RUNNING</name>
+      </installState>
+      <useSecurity>{{ .Values.Master.UseSecurity }}</useSecurity>
+      <authorizationStrategy class="hudson.security.AuthorizationStrategy$Unsecured"/>
+      <securityRealm class="hudson.security.SecurityRealm$None"/>
+      <disableRememberMe>false</disableRememberMe>
+      <projectNamingStrategy class="jenkins.model.ProjectNamingStrategy$DefaultProjectNamingStrategy"/>
+      <workspaceDir>${JENKINS_HOME}/workspace/${ITEM_FULLNAME}</workspaceDir>
+      <buildsDir>${ITEM_ROOTDIR}/builds</buildsDir>
+      <jdks/>
+      <viewsTabBar class="hudson.views.DefaultViewsTabBar"/>
+      <myViewsTabBar class="hudson.views.DefaultMyViewsTabBar"/>
+      <clouds/>
+      <scmCheckoutRetryCount>0</scmCheckoutRetryCount>
+      <views>
+        <hudson.model.AllView>
+          <owner class="hudson" reference="../../.."/>
+          <name>all</name>
+          <filterExecutors>false</filterExecutors>
+          <filterQueue>false</filterQueue>
+          <properties class="hudson.model.View$PropertyList"/>
+        </hudson.model.AllView>
+        <org.jenkinsci.plugins.environmentdashboard.EnvDashboardView plugin="environment-dashboard@1.1.7">
+          <owner class="hudson" reference="../../.."/>
+          <name>Environment Dashboard</name>
+          <filterExecutors>false</filterExecutors>
+          <filterQueue>false</filterQueue>
+          <properties class="hudson.model.View$PropertyList"/>
+          <envOrder></envOrder>
+          <compOrder>Petclinic Web App, OWASP ZAP/Selenium Integration Tests</compOrder>
+          <deployHistory>10</deployHistory>
+        </org.jenkinsci.plugins.environmentdashboard.EnvDashboardView>
+      </views>
+      <primaryView>all</primaryView>
+      <slaveAgentPort>0</slaveAgentPort>
+      <label></label>
+      <nodeProperties/>
+      <globalNodeProperties/>
+      <noUsageStatistics>true</noUsageStatistics>
+    </hudson>
+{{- if .Values.Master.ScriptApproval }}
+  scriptapproval.xml: |-
+    <?xml version='1.0' encoding='UTF-8'?>
+    <scriptApproval plugin="script-security@1.27">
+      <approvedScriptHashes/>
+      <approvedSignatures>
+{{- range $key, $val := .Values.Master.ScriptApproval }}
+        <string>{{ $val }}</string>
+{{- end }}
+      </approvedSignatures>
+      <aclApprovedSignatures/>
+      <approvedClasspathEntries/>
+      <pendingScripts/>
+      <pendingSignatures/>
+      <pendingClasspathEntries/>
+    </scriptApproval>
+{{- end }}
+  apply_config.sh: |-
+    mkdir -p /usr/share/jenkins/ref/secrets/;
+    echo "false" > /usr/share/jenkins/ref/secrets/slave-to-master-security-kill-switch;
+    #cp -n /var/jenkins_config/config.xml /var/jenkins_home;
+{{- if .Values.Master.InstallPlugins }}
+    cp /var/jenkins_config/plugins.txt /var/jenkins_home;
+    rm -rf /usr/share/jenkins/ref/plugins/*.lock
+    /usr/local/bin/install-plugins.sh `echo $(cat /var/jenkins_home/plugins.txt)`;
+{{- end }}
+{{- if .Values.Master.ScriptApproval }}
+    cp -n /var/jenkins_config/scriptapproval.xml /var/jenkins_home/scriptApproval.xml;
+{{- end }}
+{{- if .Values.Master.InitScripts }}
+    mkdir -p /var/jenkins_home/init.groovy.d/;
+    cp -n /var/jenkins_config/*.groovy /var/jenkins_home/init.groovy.d/
+{{- end }}
+{{- if .Values.Master.CredentialsXmlSecret }}
+    cp -n /var/jenkins_credentials/credentials.xml /var/jenkins_home;
+{{- end }}
+{{- if .Values.Master.SecretsFilesSecret }}
+    cp -n /var/jenkins_secrets/* /usr/share/jenkins/ref/secrets;
+{{- end }}
+{{- if .Values.Master.Jobs }}
+    for job in $(ls /var/jenkins_jobs); do
+      mkdir -p /var/jenkins_home/jobs/$job
+      cp -n /var/jenkins_jobs/$job /var/jenkins_home/jobs/$job/config.xml
+    done
+{{- end }}
+{{- range $key, $val := .Values.Master.InitScripts }}
+  init{{ $key }}.groovy: |-
+{{ $val | indent 4 }}
+{{- end }}
+  plugins.txt: |-
+{{- if .Values.Master.InstallPlugins }}
+{{- range $index, $val := .Values.Master.InstallPlugins }}
+{{ $val | indent 4 }}
+{{- end }}
+{{- end }}
+{{ else }}
+{{ include "override_config_map" . }}
+{{- end -}}

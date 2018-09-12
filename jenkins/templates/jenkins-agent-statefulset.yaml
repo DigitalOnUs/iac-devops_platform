@@ -1,0 +1,145 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: {{ template "jenkins-slave.fullname" . }}
+  labels:
+    heritage: {{ .Release.Service | quote }}
+    release: {{ .Release.Name | quote }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    component: "{{ .Release.Name }}-{{ .Values.Slave.Name }}"
+spec:
+  serviceName: {{ template "jenkins-slave.fullname" . }}
+  replicas: {{ default 0 .Values.Slave.Replicas }}
+  selector:
+    matchLabels:
+      component: "{{ .Release.Name }}-{{ .Values.Slave.Component }}"
+  template:
+    metadata:
+      labels:
+        app: {{ template "jenkins.fullname" . }}
+        heritage: {{ .Release.Service | quote }}
+        release: {{ .Release.Name | quote }}
+        chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+        component: "{{ .Release.Name }}-{{ .Values.Slave.Component }}"
+    spec:
+      {{- if .Values.Slave.NodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.Slave.NodeSelector | indent 8 }}
+      {{- end }}
+      {{- if .Values.Slave.Tolerations }}
+      tolerations:
+{{ toYaml .Values.Slave.Tolerations | indent 8 }}
+      {{- end }}
+      {{- if .Values.Slave.Affinity }}
+      affinity:
+{{ toYaml .Values.Slave.Affinity | indent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: {{ default 0 .Values.Slave.RunAsUser }}
+{{- if and (.Values.Slave.RunAsUser) (.Values.Slave.FsGroup) }}
+{{- if not (eq .Values.Slave.RunAsUser 0.0) }}
+        fsGroup: {{ .Values.Slave.FsGroup }}
+{{- end }}
+{{- end }}
+      serviceAccountName: {{ if .Values.rbac.install }}{{ template "jenkins.fullname" . }}{{ else }}"{{ .Values.rbac.serviceAccountName }}"{{ end }}
+      containers:
+        - name: {{ template "jenkins.fullname" . }}
+          image: "{{ .Values.Slave.Image }}:{{ .Values.Slave.ImageTag }}"
+          imagePullPolicy: "{{ .Values.Slave.ImagePullPolicy }}"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: JAVA_OPTS
+              value: "{{ default "" .Values.Slave.JavaOpts}}"
+            - name: SLAVE_NAME
+              value: "{{ .Values.Slave.Name }}"
+            - name: SLAVE_MODE
+              value: "{{ .Values.Slave.Mode }}"
+            - name: SLAVE_DESCRIPTION
+              value: "{{ .Values.Slave.Desc }}"
+            - name: SLAVE_LABELS
+              value:  "{{ .Values.Slave.Labels }} $POD_NAME"
+            - name: "SLAVE_EXECUTORS"
+              value:  "{{ .Values.Slave.Executors }}"
+            - name: "SWARM_MASTER"
+              value:  "http://{{template "jenkins.fullname" . }}:443"
+            - name: SWARM_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "jenkins.fullname" . }}
+                  key: jenkins-admin-user
+            - name: SWARM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "jenkins.fullname" . }}
+                  key: jenkins-admin-password
+            {{- if .Values.Slave.ContainerEnv }}
+{{ toYaml .Values.Slave.ContainerEnv | indent 12 }}
+            {{- end }}
+          resources:
+{{ toYaml .Values.Slave.Resources | indent 12 }}
+          volumeMounts:
+{{- if .Values.Persistence.Slave.mounts }}
+{{ toYaml .Values.Persistence.Slave.mounts | indent 12 }}
+{{- end }}
+            #- name: docker-socket
+            #  mountPath: /var/run/docker.sock
+            #- name: jenkins-slave-home
+            #  mountPath: /workspace
+            #  readOnly: false
+            {{- if .Values.Slave.Kubesecret }}
+            - name: kubectl-secrets
+              mountPath: /root/.kube
+              readOnly: false
+            {{- end }}
+            {{- if .Values.Slave.SshSecret }}
+            - name: ssh-secrets
+              mountPath: /root/.ssh
+              readOnly: false
+            {{- end }}
+      volumes:
+{{- if .Values.Persistence.Slave.volumes }}
+{{ toYaml .Values.Persistence.Slave.volumes | indent 6 }}
+{{- end }}
+      #- name: docker-socket
+      #  hostPath:
+      #    path: /var/run/docker.sock
+      #- name: jenkins-slave-home
+      {{- if .Values.Slave.Kubesecret }}
+      - name: kubectl-secrets
+        secret:
+          secretName: {{ .Values.Slave.Kubesecret }}
+      {{- end }}
+      {{- if .Values.Slave.SshSecret }}
+      - name: ssh-secrets
+        secret:
+          secretName: {{ .Values.Slave.SshSecret }}
+          defaultMode: 0600
+      {{- end }}
+{{- if .Values.Slave.ImagePullSecret }}
+      imagePullSecrets:
+      - name: {{ .Values.Slave.ImagePullSecret }}
+{{- end -}}
+
+
+{{- if .Values.Persistence.Slave.Enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: jenkins-slave-home
+      spec:
+        accessModes:
+          - {{ .Values.Persistence.Slave.AccessMode | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.Persistence.Slave.Size }}
+  {{- if .Values.Persistence.Slave.StorageClassName }}
+        storageClassName: {{ .Values.Persistence.Slave.StorageClassName | quote }}
+    {{- else }}
+        storageClassName: default
+  {{- end }}
+{{- else }}
+        - name: jenkins-slave-home
+          emptyDir: {}
+{{- end }}
